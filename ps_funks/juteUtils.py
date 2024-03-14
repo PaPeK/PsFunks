@@ -6,19 +6,26 @@ import geopandas as gpd
 from tabulate import tabulate
 
 
+def normalize_text(text):
+    """normalize text by removing special characters and lowering all letters"""
+    text = text.lower()
+    text = re.sub(r"[^a-zA-Z0-9]+", " ", text)
+    return text
+
+
 def split_text_logical(text, threshold, breaker=None):
     breaker_forced = breaker is not None
-    text = squeeze_text(text) # must not contain '\n' since this is used to split
+    text = squeeze_text(text)  # must not contain '\n' since this is used to split
     if breaker is None:
-        breaker = "。" if "。" in text else '. ' # in chinese a circle is used instead of a dot
-    text = text_addLineBreaks(text, threshold, breaker, splitter='\n\n')
-    texts = text.split('\n\n')
+        breaker = "。" if "。" in text else ". "  # in chinese a circle is used instead of a dot
+    text = text_addLineBreaks(text, threshold, breaker, splitter="\n\n")
+    texts = text.split("\n\n")
     if not breaker_forced:
         lens = [len(t) for t in texts]
         if np.max(lens) > 1.5 * threshold:
-            print(f'split-error breaker="{breaker}", using breaker=" "', end='\r')
-            text = ' '.join(texts)
-            texts = split_text_logical(text, breaker=' ', threshold=threshold)
+            print(f'split-error breaker="{breaker}", using breaker=" "', end="\r")
+            text = " ".join(texts)
+            texts = split_text_logical(text, breaker=" ", threshold=threshold)
     return texts
 
 
@@ -86,16 +93,16 @@ def text_addLineBreaks(string, N, breaker=None, splitter=None):
     adds line breaks to a string at the first "breaker" after every N characters
     the "breaker" is per default a space, i.e. it will not break words
     """
-    breaker = ' ' if breaker is None else breaker
-    splitter = '\n' if splitter is None else splitter
+    breaker = " " if breaker is None else breaker
+    splitter = "\n" if splitter is None else splitter
     splits = string.split(breaker)
     newName = splits[0]
     for sp in splits[1:]:
         newName += breaker + sp
         if len(newName.split(splitter)[-1]) > N:
             newName += splitter
-    if newName[-len(splitter):] == splitter:
-        newName = newName[:-len(splitter)]
+    if newName[-len(splitter) :] == splitter:
+        newName = newName[: -len(splitter)]
     return newName
 
 
@@ -141,6 +148,28 @@ def df_column_snake_name(df, sep="_"):
     renamer = {c: squezze_repeated_char(c, "_") for c in df.columns}
     df = df.rename(columns=renamer)
     return df
+
+
+def df_among_duplicate_replace_with_max(df, duplicate_criteria, column_to_replace):
+    """replace the value of column_to_replace with the maximum value among duplicates
+
+    Args:
+        df (pandas.DataFrame): DataFrame with duplicates
+        duplicate_criteria (str): column to identify duplicates
+        column_to_replace (str): column to replace the value
+    
+    Example:
+        ```python
+        df = pd.DataFrame({'last_name': ['Smith', 'Smith', 'Bells', 'Bells'],
+                           'first_name': ['Sam', 'S', 'John', 'J.']})
+        df_among_duplicate_replace_with_max(df, 'last_name', 'first_name')
+    """
+    # replace the value of column_to_replace with the maximum value among duplicates
+    is_duplicate = df[duplicate_criteria].duplicated(keep=False)
+    unique_dups = df.loc[is_duplicate, duplicate_criteria].unique()
+    for dup in unique_dups:
+        is_this_dup = df[duplicate_criteria] == dup
+        df.loc[is_this_dup, column_to_replace] = df.loc[is_this_dup, column_to_replace].dropna().max()
 
 
 def setDefault(x, val):
@@ -196,3 +225,29 @@ def get_joined_tabula_sorted(dfs):
         stri0 = stri00 + stri0[len1:]
     stri0 = "\n".join(stri0)
     return stri0
+
+
+def treeDict(dic, level=0, name="", maxKeys=5):
+    """creates a tree view of the dictionary
+
+    Args:
+        dic (dict): dictionary of interest
+        level (int, optional): treeDict is a recursive function and level is the counter of the recursion-level. Defaults to 0.
+        name (str, optional): name to be displayed. Defaults to ''.
+        maxKeys (int, optional): if the list of keys is longer than maxKeys --> only display first 5. Defaults to 5.
+    """
+    string0 = "  " * level + f"-{name}: "
+    if type(dic) == dict:
+        ks = list(dic.keys())
+        if len(ks) > maxKeys:
+            string0 += f"Showing only {maxKeys} of total {len(ks)} keys: ({ks})"
+            ks = ks[:maxKeys]
+        print(string0, ks)
+        for k in ks:
+            treeDict(dic[k], level=level + 1, name=k, maxKeys=maxKeys)
+    elif hasattr(dic, "shape"):
+        print(string0, "shape=", dic.shape)
+    elif type(dic) in [list, tuple]:
+        print(string0, f"type={type(dic)}, length={len(dic)}, {name}[0]={dic[0]}")
+    else:
+        print(string0, dic)
