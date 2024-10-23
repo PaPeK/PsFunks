@@ -45,7 +45,7 @@ def squeeze_text(text, replace_newline=False):
     if replace_newline:
         text = re.sub("\n", " ", text)
     text = re.sub(" +", " ", text)
-    return text
+    return text.strip(' ')
 
 
 def gpd_get_world(print_unrecognized=False):
@@ -129,7 +129,7 @@ def get_tabula(df):
 
 
 def squezze_repeated_char(text, char):
-    out = re.sub(f"\{char}\{char}+", char, text)
+    out = re.sub("{char}+", char, text)
     return out
 
 
@@ -150,14 +150,14 @@ def df_column_snake_name(df, sep="_"):
     return df
 
 
-def df_among_duplicate_replace_with_max(df, duplicate_criteria, column_to_replace):
+def df_among_duplicate_replace_with_max(df, duplicate_criteria, column_to_replace, add_duplicate_group_column=False):
     """replace the value of column_to_replace with the maximum value among duplicates
 
     Args:
         df (pandas.DataFrame): DataFrame with duplicates
         duplicate_criteria (str): column to identify duplicates
         column_to_replace (str): column to replace the value
-    
+
     Example:
         ```python
         df = pd.DataFrame({'last_name': ['Smith', 'Smith', 'Bells', 'Bells'],
@@ -167,9 +167,16 @@ def df_among_duplicate_replace_with_max(df, duplicate_criteria, column_to_replac
     # replace the value of column_to_replace with the maximum value among duplicates
     is_duplicate = df[duplicate_criteria].duplicated(keep=False)
     unique_dups = df.loc[is_duplicate, duplicate_criteria].unique()
-    for dup in unique_dups:
+    c_dup = 'duplicate_group'
+    df[c_dup] = None
+    for i, dup in enumerate(unique_dups):
         is_this_dup = df[duplicate_criteria] == dup
-        df.loc[is_this_dup, column_to_replace] = df.loc[is_this_dup, column_to_replace].dropna().max()
+        df.loc[is_this_dup, [column_to_replace, c_dup]] = [df.loc[is_this_dup,
+                                                                  column_to_replace].dropna().max(),
+                                                           i]
+    if not add_duplicate_group_column:
+        df.drop(columns=[c_dup], inplace=True)
+
 
 
 def setDefault(x, val):
@@ -182,8 +189,10 @@ def get_countryInfo():
     """
     contains basic country information, as population, GDP, etc.
     """
-    df_countryInfo = pd.read_csv(_d_data / "country_data.csv").set_index("iso_alpha3")
-    return df_countryInfo
+    df = pd.read_csv(_d_data / "country_data.csv").set_index("iso_alpha3")
+    # iso2 for namibia gets always messed up "NA" with NaN
+    df.loc[df.index == 'NAM', 'iso_alpha2'] = "NA"
+    return df
 
 
 _d_data = Path(__file__).parent.resolve() / "data"
@@ -251,3 +260,108 @@ def treeDict(dic, level=0, name="", maxKeys=5):
         print(string0, f"type={type(dic)}, length={len(dic)}, {name}[0]={dic[0]}")
     else:
         print(string0, dic)
+
+
+def df_xbin_yquantile(df, x, y, bins=50, quantiles=None):
+    '''
+    creates x-bins that have all the same amount of data and computes in these bins
+    the [0.25, 0.5, 0.75] y-quantiles
+    and
+    [x_mean, x_median, y_mean]
+
+    INPUT:
+        df pd.DataFrame
+        x str || float || int
+            dataframe column along which the data is binned
+            in bins with the same amount of data
+        y str || float || int
+            dataframe column of which the quantiles of each bin are computed
+    OUTPUT:
+        df pd.DataFrame
+            index= x-quantiles
+            columns= [0.25, 0.5, 0.75, x_mean, x_median, y_mean]
+    '''
+    if quantiles is None:
+        quantiles = [0.25, 0.5, 0.75]
+    df = df.copy()
+    df['x_qs'] = pd.qcut(df[x], bins, duplicates='drop')
+    df = df.groupby('x_qs', observed=False)[y].quantile(quantiles)\
+            .to_frame().reset_index()\
+            .pivot(index='x_qs', columns='level_1', values=y)\
+            .join(df.groupby('x_qs', observed=False)[x].mean().rename('x_mean'))\
+            .join(df.groupby('x_qs', observed=False)[x].median().rename('x_median'))\
+            .join(df.groupby('x_qs', observed=False)[y].mean().rename('y_mean'))
+    return df
+
+
+def nanptp(arr):
+    """Calculate the range of values in an array, ignoring NaN values.
+
+    Args:
+        arr (numpy.ndarray): Input array.
+
+    Returns:
+        float: Range of values in the array, ignoring NaN values.
+    """
+    valid_values = arr[~np.isnan(arr)]
+    return np.ptp(valid_values)
+
+
+def find_blocks_low(dat, mind, minNr, minBlock, return_indices=False, lowEqual=False):
+    '''
+    find start- end end-time of blocks where
+    dat<mind for at least "minNr" agents
+    INPUT:
+        dat.shape(time, N) OR (time)
+            datability that ID is correct for "N" agents OR 1 agent
+        minNr float
+            # of agents for which the creterion must hold simultaneously
+        minBlock int
+            minium size of block-length
+    '''
+    there = np.where(dat < mind)
+    if lowEqual:
+        there = np.where(dat <= mind)
+    if len(dat.shape) > 1:  # dat.shape(time, N)
+        Blowdats = np.zeros(dat.shape)
+        Blowdats[there] = 1
+        there = np.where(np.sum(Blowdats, axis=1) >= minNr)[0]
+    else:                   # dat.shape(time)
+        there = there[0]
+    if return_indices:
+        return there
+    blocks = get_blocks(there, minBlock)
+    return blocks
+
+
+def get_blocks(there, minsize):
+    '''
+    return blocks(continously increasing values) in there
+    and return the start and end-value of the blocks
+    example:
+            in: there=[1, 2, 3, 10, 11, 12, 13, 14, 22, 25,26]
+            out: blocks=[[1,3], [10, 14], [22, 22], [25, 26]]
+
+        INPUT:
+            there.shape(time)
+        OUTPUT:
+            blocks.shape(blocks, 2)
+    '''
+    if len(there) == 0:
+        return []
+    differs = np.diff(there)
+    borders = np.where(differs>1)[0]
+    sblocks = np.ones((len(borders) + 1, 1), dtype='int')  # start points of blocks
+    eblocks = np.ones((len(borders) + 1, 1), dtype='int')  # end points of blocks
+    sblocks[0] = there[0]  # first start point of block
+    eblocks[-1] = there[-1]  # last end point of block
+    for i in range(len(borders)):
+        eblocks[i] = there[borders[i]]
+        sblocks[i+1] = there[borders[i] + 1]
+    blocks = np.hstack((sblocks, eblocks))
+    blocklen = np.diff(blocks) + 1
+    longenough = np.where(blocklen >= minsize)[0]
+    # ppk
+    print(f'minsize = {minsize}')
+    blocks = blocks[longenough]
+    return blocks
