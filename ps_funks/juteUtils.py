@@ -2,6 +2,7 @@ import numpy as np
 from pathlib import Path
 import re
 import pandas as pd
+import polars as pl
 import geopandas as gpd
 from tabulate import tabulate
 
@@ -129,24 +130,29 @@ def get_tabula(df):
 
 
 def squezze_repeated_char(text, char):
-    out = re.sub("{char}+", char, text)
+    out = re.sub(f"({char})+", char, text)
     return out
 
 
 def df_column_snake_name(df, sep="_"):
+    polars = type(df) == pl.DataFrame
     # rename columns
     renamer = {
-        c: c.replace(".", "_")
-        .replace("(", "_")
+        c: c.replace(".", sep)
+        .replace("…", sep)
+        .replace("(", sep)
         .replace(")", "")
-        .replace(" ", "_")
-        .replace("%", "")
+        .replace(" ", sep)
+        .replace("%", f"in{sep}percent")
         .lower()
+        .strip(sep)
         for c in df.columns
     }
-    df = df.rename(columns=renamer)
-    renamer = {c: squezze_repeated_char(c, "_") for c in df.columns}
-    df = df.rename(columns=renamer)
+    renamer = {k: squezze_repeated_char(v, sep) for k, v in renamer.items()}
+    if polars:
+        df = df.rename(renamer)
+    else:
+        df = df.rename(columns=renamer)
     return df
 
 

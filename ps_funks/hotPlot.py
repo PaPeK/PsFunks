@@ -43,6 +43,14 @@ def no_spines(axs):
         axs.spines[k].set_visible(False)
 
 
+def yaxis_to_right(ax):
+    yax = ax.yaxis
+    ax.spines['left'].set_visible(False)
+    ax.spines['right'].set_visible(True)
+    yax.set_label_position("right")
+    yax.tick_right()
+
+
 def get_twinx(ax, color="C0"):
     axtwin = ax.twinx()
     no_spines(axtwin)
@@ -391,6 +399,54 @@ def legend_handle_same_size(legend, size=30):
         else:
             print("legend handle is neither marker nor line")
             print(f"its: {type(handle)}")
+
+
+def legend_scatter_size(
+    ax,
+    s,
+    marker="o",
+    Ns=4,
+    loc=4,
+    title="size:",
+    alpha=0.3,
+    color="k",
+    rounder=0,
+    scale_factor=1,
+    scale_func=None,
+    labelspacing=0,
+    **kwgs,
+):
+    """
+    simple hack to add 2nd legend by twinx() and apply legend on other axis
+    otherwise you have to go crazy with the handles as here:
+
+    """
+
+    def dummy_func(s):
+        return s
+
+    if scale_func is None:
+        scale_func = dummy_func
+    axt = ax.twinx()
+    s_min, s_max = np.min(s), np.max(s)
+    if s_min < 1 and rounder == 0:
+        s_min = 1
+    s = np.round(np.logspace(np.log10(s_min), np.log10(s_max), Ns), rounder)
+    if rounder == 0:
+        s = s.astype(int)
+    for s_name, s_plot in list(zip(s, scale_factor * scale_func(s))):
+        axt.scatter(
+            [], [], marker=marker, s=s_plot, label=s_name, color=color, alpha=alpha
+        )
+    axt.set_axis_off()
+    axt.legend(
+        title=title,
+        loc=loc,
+        handletextpad=0,
+        labelspacing=labelspacing,
+        frameon=False,
+        **kwgs,
+    )
 
 
 def undo_seaborn_params():
