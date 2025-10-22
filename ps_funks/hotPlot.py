@@ -7,6 +7,8 @@ import numpy as np
 import ps_funks.juteUtils as jut
 from pathlib import Path
 import seaborn as sns
+import pandas as pd
+from functools import partial
 
 
 def shareXlimits(axs):
@@ -143,8 +145,8 @@ def subplots(N, size=0.8, aspect=1, flatten=True, n_col=None, n_row=None, axes_o
     # set position of axis outwards (no crossing)
     offset = axes_offset
     if N == 1:
-        axs = [axs]
-    for ax in axs:
+        axs = np.array([axs])
+    for ax in axs.flatten():
         ax.spines['bottom'].set_position(('outward', offset))
         ax.spines['left'].set_position(('outward', offset))
     if N == 1:
@@ -254,6 +256,20 @@ def nice_dates(ax, y=False, monthstep=2, month_offset=1, rotation_major=0, rotat
     if rotation_minor is not None:
         for t in axis.get_minorticklabels():
             t.set_rotation(rotation_minor)
+
+def yticks_to_integers(ax, N_ticks=5):
+    ''' converts the y ticks to integer values
+    INPUT:
+        ax: matplotlib.axes object
+        N_ticks: integer
+    '''
+    ylim = [int(float(y)) for y in ax.get_ylim()]
+    ylim[0] += 1 # to not have a tick at the very start
+    ydiff = np.diff(ylim)
+    # not more than N_ticks ticks:
+    step = int(ydiff / N_ticks) + int((ydiff / N_ticks) % 1 != 0)
+    y_ticks = np.arange(ylim[0], ylim[1]+1, step=step)
+    ax.set_yticks(y_ticks)
 
 
 class DateFormatter_withEmptyStrings(matplotlib.dates.DateFormatter):
@@ -694,3 +710,152 @@ def BluesReds(unwhite=0):
     clrs = np.vstack((colors1, colors2))
     mymap = mplc.LinearSegmentedColormap.from_list("my_colormap", clrs)
     return mymap
+
+
+def hammer_bundle(ax: plt.Axes, df_nodes: pd.DataFrame, df_edges: pd.DataFrame,
+                  source_bundle=False, quick_plot=False,
+                  kwgs_hb: dict = {'decay': 0.2, 'initial_bandwidth': 0.25, 'iterations': 1},
+                  kwgs_plot: dict = dict(alpha=0.3, color='k', label='_nolab', linewidth=0.1)):
+    # assure correct columns
+    assert np.in1d(['x', 'y'], df_nodes.columns).all(), "df_nodes must contain columns 'x' and 'y'"
+    assert np.in1d(['source', 'target'], df_edges.columns).all(), "df_edges must contain columns 'source' and 'target'"
+    try:
+        import datashader
+    except ImportError:
+        raise ImportError("datashader is not installed (need for hammer_bundle)")
+    from datashader.bundling import hammer_bundle
+    # ensure the right labeling (source and target must be integers)
+    if not df_edges['source'].dtype == int:
+        assert 'name' in df_nodes.columns, "df_nodes must contain column 'name' if df_edges['source'] is not int"
+        node_2_int = {v:k for k, v in df_nodes['name'].to_dict().items()}
+        df_edges = df_edges.replace(node_2_int)
+    df_nodes = df_nodes[['x', 'y']].reset_index(drop=True)
+    # BUNDLE
+    hammer_bundle_func = partial(hammer_bundle, **kwgs_hb)
+    if source_bundle:
+        hbs = []
+        for s in df_edges['source'].unique():
+            df_edges_s = df_edges.query('source == @s')
+            if len(df_edges_s) > 1:
+                hb = hammer_bundle_func(df_nodes, df_edges_s)
+                hbs.append(hb)
+        hbs = pd.concat(hbs, axis=0, ignore_index=True)
+    else:
+        hbs = hammer_bundle_func(df_nodes, df_edges)
+    # PLOT
+    plt_function = partial(ax.plot, **kwgs_plot)
+    if quick_plot:
+        plt_function(hbs['x'], hbs['y'])
+    else: # plot each line independently (to be able to set alpha)
+        there_nan = np.where(hbs['x'].isna())[0]
+        i0 = -1
+        for i in there_nan:
+            hb = hbs.iloc[i0+1:i]
+            plt_function(hb['x'], hb['y'])
+            i0 = i
+    return
+
+
+def circle_at_center(ax, radius, **kwgs):
+    circle = plt.Circle((0, 0), radius, **kwgs)
+    ax.add_artist(circle)
+
+
+############ COLOR TRANSFORMATIONS ############
+################## START ######################
+
+def color_rgb_2_hex(rgb):
+    assert np.max(rgb) <= 1, "assumes rbg values in [0, 1]"
+    rgb = np.round(np.array(rgb) * 255, 0)
+    return color_rgb255_2_hex(rgb)
+
+
+def color_rgb255_2_hex(rgb):
+    def clamp(x):
+        return int(max(0, min(x, 255)))
+
+    r, g, b = rgb
+    hex = "#{0:02x}{1:02x}{2:02x}".format(clamp(r), clamp(g), clamp(b))
+    return hex
+
+
+def color_hex_to_rgb(value):
+    value = value.lstrip("#")
+    lv = len(value)
+    return tuple(int(value[i : i + lv // 3], 16) for i in range(0, lv, lv // 3))
+
+
+def color_to_rgb(c):
+    return mplc.to_rgb(c)
+
+
+def color_rgb_transparent(rgb, alpha, bg_rgb=[1, 1, 1]):
+    return [alpha * c1 + (1 - alpha) * c2 for (c1, c2) in zip(rgb, bg_rgb)]
+
+
+def color_alpha_2_rgb(color, alpha):
+    rgb = color_to_rgb(color)
+    return color_rgb_transparent(rgb, alpha)
+
+################## END ########################
+############ COLOR TRANSFORMATIONS ############
+
+
+def legend_world_regions(
+    ax, divide_at="bottom", divide_size="50%",
+    markerscale=2, fontsize=20, ncol=3, antarctica=False,
+):
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+    df_info = jut.get_countryInfo().set_index("region_name")
+    # color by color-continent + alpha-region
+    cs = [
+        color_to_rgb("darkblue"),
+        (0.588, 0, 0), # better than 'crimson'
+        (0.5254902, 0.49411765, 0.21176471), # Old moss green
+        color_to_rgb("black"),
+        color_to_rgb("darkmagenta"),
+        color_to_rgb("darkgoldenrod"),
+    ]
+    if not antarctica:
+        df_info = df_info[df_info['continent_name'] != "Antarctica"]
+        cs.pop(2) # remove moss green
+    contis = np.sort(df_info.continent_name.unique()) # ['Africa', 'Americas', 'Antarctica', 'Asia', 'Europe', 'Oceania']
+    conti_2_color = {conti: cs[i] for i, conti in enumerate(contis)}
+    regio_2_color = {}
+    regioss = {}
+    for conti in contis:
+        cc = conti_2_color[conti]
+        regios = df_info.query(
+            'continent_name == "Europe"'
+            ).groupby('region_name').size().sort_values().index.values
+        # old style via population size: (still like)
+        # regios = df_info.loc[df_info.continent_name == conti]
+        # regios = regios.sort_values("population", ascending=True).index.values
+        alphas = np.logspace(np.log10(0.25), 0, len(regios))
+        regio_2_color.update(
+            {r: color_rgb_transparent(cc, alphas[i]) for i, r in enumerate(regios)}
+        )
+        regioss[conti] = regios
+    regio_2_color = {k: color_rgb_2_hex(rgb) for k, rgb in regio_2_color.items()}
+    if ax is None:
+        return contis, regioss, regio_2_color
+    # plotting
+    world_r = jut.gpd_get_world_regions()
+    world_r.plot(ax=ax, color=world_r.region_name.replace(regio_2_color))
+    ax.axis("off")
+    divider = make_axes_locatable(ax)
+    # legend-part
+    cax = divider.append_axes(divide_at, size=divide_size, pad=0.05)
+    for cont in contis:
+        regs = (
+            df_info.loc[df_info.continent_name == cont]
+            .sort_values("population", ascending=False)
+            .index.values
+        )
+        for r in regs:
+            cax.scatter(None, None, color=regio_2_color[r], marker="s", label=r)
+
+    cax.legend(ncol=ncol, frameon=False, fontsize=fontsize, markerscale=markerscale)
+    cax.axis("off")
+    return contis, regioss, regio_2_color

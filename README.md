@@ -43,6 +43,11 @@ short explanation of all files in the repo:
 
 * `ps_funks/`: folder contains [code, modules]
     * `__init__`: init file
+    * `data/`: folder contains data files for the code
+        * `geoBoundariesCGAZ_ADM0.zip`: ADM0 (Countries) shapefile dowloaded from [https://www.geoboundaries.org/globalDownloads.html](https://www.geoboundaries.org/globalDownloads.html)
+            * it is needed for the world map with countries
+        * `country_data_simple.csv`: country dat with [`iso_alpha2`, `iso_alpha3`, `country_name`, `region_name`, `continent_name`]
+        * `countries_with_missing_regions.csv`: same as above but region-data was added by hand
     * `hotPlot.py`: all functions related to plotting
     * `juteUtils.py`: all functions unrelated to plotting
     * `board_operations.py`: contains the class BoardData to handle multiple boards with the same sk-learn settings 
@@ -91,12 +96,12 @@ f, ax = plt.subplots(1)
 # do some plotting here
 savefig_multi(f, 'fig_name')
 ```
-* very usefull for multipanel figures is `hp.axesGrid(N)` which is a wrapper of `plt.subplots()`
+* very usefull for multipanel figures is `hp.subplots(N)` which is a wrapper of `plt.subplots()`
     * with the options `n_row` and `n_col` you either define how many rows or columns the grid shall have
     * it will return a flattened array of axes-objects (and takes care of too many created due to grid constraints)
 ```python
 N = 5
-f, axs = hp.axesGrid(N, n_col=2)
+f, axs = hp.subplots(N, n_col=2)
 for i in range(N):
     ax = axs[i]
     # do some plotting on ax

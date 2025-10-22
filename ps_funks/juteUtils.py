@@ -4,6 +4,7 @@ import re
 import pandas as pd
 import polars as pl
 import geopandas as gpd
+import geodatasets
 from tabulate import tabulate
 
 
@@ -49,7 +50,7 @@ def squeeze_text(text, replace_newline=False):
     return text.strip(' ')
 
 
-def gpd_get_world(print_unrecognized=False):
+def gpd_get_world(print_neglected=False):
     """
     loads and from geopandas (gpd) the dataset "naturalearth_lowres"
     and substitues missing iso-alpha3 codes
@@ -58,15 +59,17 @@ def gpd_get_world(print_unrecognized=False):
             but is autonomously governed
     """
 
-    world = gpd.read_file(gpd.datasets.get_path("naturalearth_lowres"))
-    # add iso3 codes that before were -99
-    world.loc[world.name.str.contains("France"), "iso_a3"] = "FRA"
-    world.loc[world.name.str.contains("Norway"), "iso_a3"] = "NOR"
-    world.loc[world.name.str.contains("Kosovo"), "iso_a3"] = "XKX"
-    world.loc[world.name.str.contains("Somaliland"), ["iso_a3", "name"]] = "SOM", "Somalia"
-    # there are still 'N. Cyprus' that are listed as -99
-    if print_unrecognized:
-        print(world.loc[world.iso_a3 == "-99"])
+    # world = gpd.read_file(gpd.datasets.get_path("naturalearth.land"))
+    world = gpd.read_file(_d_data / 'geoBoundariesCGAZ_ADM0.zip')
+    # rename:
+    world = world.rename(columns={'shapeGroup': 'iso_a3', 'shapeName': 'country_name'})
+	# exclude regions without a proper iso_a3 code, like:
+	# ['Abyei', 'Aksai Chin', 'CH-IN', 'Demchok', 'Dragonja', 'Dramana-Shakatoe', 'Falkland Islands (UK)', 'Gaza Strip', 'Kalapani', 'Isla Brasilera',
+	#  'Siachen-Saltoro', 'Koualou', 'Liancourt Rocks', "No Man's Land", 'Paracel Is', 'Sanafir & Tiran Is.', 'Senkakus', 'Spratly Is', 'West Bank']
+    mask_alpha = world.iso_a3.apply(lambda x: x.isalpha())
+    if print_neglected:
+        print(world.loc[~mask_alpha].values)
+    world = world.loc[mask_alpha]
     return world
 
 
@@ -74,16 +77,16 @@ def gpd_get_world_regions():
     """
     same as gpd_get_world but not on country level but world_region level
     """
-
     df_countryInfo = get_countryInfo()
     world = gpd_get_world()
     # cs_arptInfo = ['country_name', 'region_name', 'continent_name', 'region_id', 'continent_id']
-    world = world.set_index("iso_a3").join(df_countryInfo.drop(columns=["continent", "name"]))
+    world = world.set_index("iso_a3").join(
+            df_countryInfo.drop(columns=["continent_name", "country_name", "iso_alpha2"])
+            )
     world = world.loc[~(world.region_name.isna())]
     df_world_r = (
         world.dissolve(by=(cby := "region_name"))
-        .drop(columns=[(cd := "pop_est"), "name", "country_name"])
-        .join(world.groupby(cby)[cd].sum())
+        .drop(columns=["country_name"])
         .reset_index()
     )
     return df_world_r
@@ -194,10 +197,13 @@ def setDefault(x, val):
 def get_countryInfo():
     """
     contains basic country information, as population, GDP, etc.
+    - the 14 'regions' values in 'countries_with_missing_regions.csv' were set by hand based on proximity
     """
-    df = pd.read_csv(_d_data / "country_data.csv").set_index("iso_alpha3")
+    df_0 = pd.read_csv(_d_data / 'country_data_simple.csv', index_col=0)
+    df_1 = pd.read_csv(_d_data / 'countries_with_missing_regions.csv', index_col=0)
+    df = pd.concat([df_0, df_1], ignore_index=True).set_index("iso_alpha3")
     # iso2 for namibia gets always messed up "NA" with NaN
-    df.loc[df.index == 'NAM', 'iso_alpha2'] = "NA"
+    df.loc['NAM', 'iso_alpha2'] = "NA"
     return df
 
 
