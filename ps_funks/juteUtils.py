@@ -6,6 +6,18 @@ import polars as pl
 import geopandas as gpd
 import geodatasets
 from tabulate import tabulate
+from shapely.geometry import MultiPolygon, Polygon
+from shapely.affinity import translate
+from functools import partial
+from joblib import Memory, memory
+
+
+# monkey patch this internal method
+# to keep it from making new caches for each kernel
+memory._build_func_identifier = lambda func: func.__name__
+cachedir = Path.home() / "memory_cacher"
+cachedir.mkdir(exist_ok=True)
+memory = Memory(location=cachedir, verbose=0)
 
 
 def normalize_text(text):
@@ -63,9 +75,9 @@ def gpd_get_world(print_neglected=False):
     world = gpd.read_file(_d_data / 'geoBoundariesCGAZ_ADM0.zip')
     # rename:
     world = world.rename(columns={'shapeGroup': 'iso_a3', 'shapeName': 'country_name'})
-	# exclude regions without a proper iso_a3 code, like:
-	# ['Abyei', 'Aksai Chin', 'CH-IN', 'Demchok', 'Dragonja', 'Dramana-Shakatoe', 'Falkland Islands (UK)', 'Gaza Strip', 'Kalapani', 'Isla Brasilera',
-	#  'Siachen-Saltoro', 'Koualou', 'Liancourt Rocks', "No Man's Land", 'Paracel Is', 'Sanafir & Tiran Is.', 'Senkakus', 'Spratly Is', 'West Bank']
+    # exclude regions without a proper iso_a3 code, like:
+    # ['Abyei', 'Aksai Chin', 'CH-IN', 'Demchok', 'Dragonja', 'Dramana-Shakatoe', 'Falkland Islands (UK)', 'Gaza Strip', 'Kalapani', 'Isla Brasilera',
+    #  'Siachen-Saltoro', 'Koualou', 'Liancourt Rocks', "No Man's Land", 'Paracel Is', 'Sanafir & Tiran Is.', 'Senkakus', 'Spratly Is', 'West Bank']
     mask_alpha = world.iso_a3.apply(lambda x: x.isalpha())
     if print_neglected:
         print(world.loc[~mask_alpha].values)
@@ -73,6 +85,7 @@ def gpd_get_world(print_neglected=False):
     return world
 
 
+@memory.cache
 def gpd_get_world_regions():
     """
     same as gpd_get_world but not on country level but world_region level
@@ -90,6 +103,57 @@ def gpd_get_world_regions():
         .reset_index()
     )
     return df_world_r
+
+
+@memory.cache
+def gpd_get_world_regions_stacked():
+    world = gpd_get_world_regions().query('region_name != "Antarctica"')
+    # compute centroids of americas and the rest as rough translates
+    center_americas_x = -84.106148
+    center_rest_x = 69.573751
+    y_min = -55.91544342 # min-y value of americas
+    y_max2 = 81.86164093 # max-y value or rest of the world
+    # translate operations
+    x_off1 = - center_americas_x + 20
+    y_off1 = 0
+    x_off2 = - center_rest_x
+    y_off2 = - y_max2 + y_min - 5
+    # now prepare the translate function
+    translate_conditionally_part = partial(translate_conditionally, x_limit=-10,
+                                           x_off1=x_off1, y_off1=y_off1,
+                                           x_off2=x_off2, y_off2=y_off2)
+    # Apply the function to each geometry in the GeoDataFrame
+    world['geometry'] = world['geometry'].apply(translate_conditionally_part)
+    return world
+
+
+def translate_conditionally(geometry, x_limit=0, x_off1=0, y_off1=0, x_off2=0, y_off2=0):
+    ''' Function to translate each polygon based on its max x-bound '''
+    translate1 = partial(translate, xoff=x_off1, yoff=y_off1)
+    translate2 = partial(translate, xoff=x_off2, yoff=y_off2)
+    if geometry.is_empty:
+        return geometry
+    if isinstance(geometry, Polygon):
+        # Handle single Polygon
+        bounds = geometry.bounds
+        max_x = bounds[2]  # Extract max x-bound
+        if max_x < x_limit:
+            return translate1(geometry)
+        else:
+            return translate2(geometry)
+    elif isinstance(geometry, MultiPolygon):
+        # Handle MultiPolygon
+        translated_polygons = []
+        for polygon in geometry.geoms:
+            bounds = polygon.bounds
+            max_x = bounds[2]  # Extract max x-bound
+            polygon = translate1(polygon) if max_x < x_limit else translate2(polygon)
+            translated_polygons.append(polygon)
+        return MultiPolygon(translated_polygons)
+    else:
+        # Return the geometry as is if it's not a Polygon or MultiPolygon
+        return geometry
+
 
 
 def text_addLineBreaks(string, N, breaker=None, splitter=None):
@@ -199,9 +263,7 @@ def get_countryInfo():
     contains basic country information, as population, GDP, etc.
     - the 14 'regions' values in 'countries_with_missing_regions.csv' were set by hand based on proximity
     """
-    df_0 = pd.read_csv(_d_data / 'country_data_simple.csv', index_col=0)
-    df_1 = pd.read_csv(_d_data / 'countries_with_missing_regions.csv', index_col=0)
-    df = pd.concat([df_0, df_1], ignore_index=True).set_index("iso_alpha3")
+    df = pd.read_csv(_d_data / 'country_data.csv', index_col=0)
     # iso2 for namibia gets always messed up "NA" with NaN
     df.loc['NAM', 'iso_alpha2'] = "NA"
     return df

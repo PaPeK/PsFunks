@@ -144,13 +144,14 @@ def subplots(N, size=0.8, aspect=1, flatten=True, n_col=None, n_row=None, axes_o
         axs = axs.flatten()[:N]
     # set position of axis outwards (no crossing)
     offset = axes_offset
-    if N == 1:
-        axs = np.array([axs])
-    for ax in axs.flatten():
-        ax.spines['bottom'].set_position(('outward', offset))
-        ax.spines['left'].set_position(('outward', offset))
-    if N == 1:
-        axs = axs[0]
+    if offset > 0:
+        if N == 1:
+            axs = np.array([axs])
+        for ax in axs.flatten():
+            ax.spines['bottom'].set_position(('outward', offset))
+            ax.spines['left'].set_position(('outward', offset))
+        if N == 1:
+            axs = axs[0]
     return f, axs
 
 
@@ -802,17 +803,35 @@ def color_alpha_2_rgb(color, alpha):
 
 
 def legend_world_regions(
-    ax, divide_at="bottom", divide_size="50%",
-    markerscale=2, fontsize=20, ncol=3, antarctica=False,
+    ax, divide_at="bottom", divide_size=1.8,
+    antarctica=False, legend_kwgs=None
 ):
-    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    '''
+    creates a legend of world regions colored by continent and shaded by region 
+    (regions are sorted by population size within each continent)
+    * the parameters are set such that it works with the example below
+    EXAMPLE:
+        f, ax = plt.subplots(1)
+        world_r, df_info, regio_2_color = hp.legend_world_regions(ax, divide_at='bottom')
+        f.tight_layout()
 
+        or use divide_at='right'
+    '''
+    assert divide_at in ["bottom", "top", "left", "right"], "divide_at must be one of 'bottom', 'top', 'left', 'right'"
+    from mpl_toolkits.axes_grid1 import make_axes_locatable
+    # define legend_kwgs
+    _legend_kwgs = dict(markerscale=1.3, fontsize=9, ncol=3)
+    if divide_at in ['right', 'left']:
+        _legend_kwgs = dict(markerscale=1.3, fontsize=8.7, ncol=1)
+    if legend_kwgs is not None:
+        _legend_kwgs.update(legend_kwgs)
+    # legend colors 
     df_info = jut.get_countryInfo().set_index("region_name")
     # color by color-continent + alpha-region
     cs = [
         color_to_rgb("darkblue"),
         (0.588, 0, 0), # better than 'crimson'
-        (0.5254902, 0.49411765, 0.21176471), # Old moss green
+        (0.5254902, 0.49411765, 0.21176471), # Old moss green for Antarctica
         color_to_rgb("black"),
         color_to_rgb("darkmagenta"),
         color_to_rgb("darkgoldenrod"),
@@ -823,39 +842,41 @@ def legend_world_regions(
     contis = np.sort(df_info.continent_name.unique()) # ['Africa', 'Americas', 'Antarctica', 'Asia', 'Europe', 'Oceania']
     conti_2_color = {conti: cs[i] for i, conti in enumerate(contis)}
     regio_2_color = {}
-    regioss = {}
+    df_info = df_info.groupby('region_name'
+                              ).agg({'population': 'sum',
+                                     'continent_name': 'first'})
     for conti in contis:
         cc = conti_2_color[conti]
         regios = df_info.query(
-            'continent_name == "Europe"'
-            ).groupby('region_name').size().sort_values().index.values
+            'continent_name == @conti'
+            ).sort_values('population').index.values
         # old style via population size: (still like)
-        # regios = df_info.loc[df_info.continent_name == conti]
-        # regios = regios.sort_values("population", ascending=True).index.values
         alphas = np.logspace(np.log10(0.25), 0, len(regios))
         regio_2_color.update(
             {r: color_rgb_transparent(cc, alphas[i]) for i, r in enumerate(regios)}
         )
-        regioss[conti] = regios
     regio_2_color = {k: color_rgb_2_hex(rgb) for k, rgb in regio_2_color.items()}
+    if divide_at in ["top", "bottom"]:
+        world_r = jut.gpd_get_world_regions()
+    else:
+        world_r = jut.gpd_get_world_regions_stacked()
+    if not antarctica:
+        world_r = world_r.loc[world_r.region_name != "Antarctica"]
     if ax is None:
-        return contis, regioss, regio_2_color
+        return world_r, df_info, regio_2_color
     # plotting
-    world_r = jut.gpd_get_world_regions()
     world_r.plot(ax=ax, color=world_r.region_name.replace(regio_2_color))
     ax.axis("off")
+    ax.set_aspect("equal")
     divider = make_axes_locatable(ax)
     # legend-part
     cax = divider.append_axes(divide_at, size=divide_size, pad=0.05)
-    for cont in contis:
-        regs = (
-            df_info.loc[df_info.continent_name == cont]
-            .sort_values("population", ascending=False)
-            .index.values
-        )
-        for r in regs:
+    for conti in contis:
+        regios = df_info.query(
+            'continent_name == @conti'
+            ).sort_values('population', ascending=False).index.values
+        for r in regios:
             cax.scatter(None, None, color=regio_2_color[r], marker="s", label=r)
-
-    cax.legend(ncol=ncol, frameon=False, fontsize=fontsize, markerscale=markerscale)
+    cax.legend(frameon=False, **_legend_kwgs)
     cax.axis("off")
-    return contis, regioss, regio_2_color
+    return world_r, df_info, regio_2_color
