@@ -803,7 +803,7 @@ def color_alpha_2_rgb(color, alpha):
 
 
 def legend_world_regions(
-    ax, divide_at="bottom", divide_size=1.8,
+    ax, divide_at="right", divide_size=1.8,
     antarctica=False, legend_kwgs=None
 ):
     '''
@@ -880,3 +880,49 @@ def legend_world_regions(
     cax.legend(frameon=False, **_legend_kwgs)
     cax.axis("off")
     return world_r, df_info, regio_2_color
+
+
+####### networkx plotting helpers ########
+def plot_graph_with_positions(G, pos, ax, with_labels=False,
+                              color_edges=None, color_nodes=None,
+                              kwgs_edges={}, kwgs_nodes={}):
+    ''' a wrapper around networkx drawing functions
+    INPUT:
+        G: networkx.Graph
+        pos: dict, {node: (x, y)}
+        ax: matplotlib.axes.Axes
+        with_labels: bool, whether to draw labels
+        color_edges: list or str, color for edges
+        color_nodes: list or str, color for nodes
+        kwgs_edges: dict, additional keyword arguments for edges
+        kwgs_nodes: dict, additional keyword arguments for nodes
+
+    EXAMPLE:
+        ```python
+        # array like colors
+        node_color = [node_2_color[n] for n in SPT.nodes()]
+        edge_color = [node_2_color[t] for _, t in SPT.edges()]
+        # dict like positions:
+        pos = {node: (x, y) for node, (x, y) in SPT.nodes(data=True)}
+        pos = spt_ss.get_positions_ordered_twice(order, hierarchical=False)
+        # plot
+        f, ax = plt.subplots(1)
+        plot_graph_with_positions(ax, pos, with_labels=False,
+            color_nodes=node_color,
+            color_edges=edge_color)
+        ```
+    '''
+    params_nodes = dict(node_color="lightblue", node_size=0.1, alpha=0.7)
+    params_nodes.update(kwgs_nodes)
+    params_edges = dict(arrows=False, width=0.5, edge_color="gray")
+    params_edges.update(kwgs_edges)
+
+    if color_edges is not None:
+        params_edges['edge_color'] = color_edges
+    if color_nodes is not None:
+        params_nodes['node_color'] = color_nodes
+    _n = nx.draw_networkx_nodes(G, pos, ax=ax, **params_nodes)
+    _e = nx.draw_networkx_edges(G, pos, ax=ax, **params_edges)
+    if with_labels:
+        nx.draw_networkx_labels(G, pos, ax=ax)
+    ax.set_axis_off()

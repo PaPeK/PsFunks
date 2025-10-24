@@ -4,7 +4,6 @@ import re
 import pandas as pd
 import polars as pl
 import geopandas as gpd
-import geodatasets
 from tabulate import tabulate
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.affinity import translate

@@ -5,34 +5,31 @@ version = "0.1.0"
 authors = [
     { name = "Pascal P. Klamser", email = "klamser@physik.hu-berlin.de" },
 ]
+
 dependencies = [
   'matplotlib',
+  'polars',
   'numpy',
   'pathlib',
   'cycler',
   'seaborn',
   'pandas',
-  'geopandas',
   'tabulate',
   'python-dotenv',
-  'requests', 
-  'scikit-learn', 
-  'uuid', 
-  'deep-translator', 
-  'iso-language-codes', 
+  'requests',
+  'scikit-learn',
+  'uuid',
+  'deep-translator',
+  'iso-language-codes',
   'lingua-language-detector',
+  "geopandas>=1.1.1",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest",
-    "tox",
-]
 
-# this is meant to enable developer mode-install via pip
 [build-system]
-build-backend = "flit_core.buildapi"
-requires = ["flit_core >=3.2,<4"]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
 
 [tool.black]
 line-length = 100
@@ -52,3 +49,6 @@ signature-mutators = "click.decorators.option"
 
 [tool.pylint."MESSAGES CONTROL"]
 disable = "missing-class-docstring,missing-function-docstring,missing-module-docstring,too-few-public-methods"
+
+[tool.setuptools]
+packages = ["ps_funks"]
