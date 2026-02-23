@@ -733,7 +733,7 @@ def hammer_bundle(ax: plt.Axes, df_nodes: pd.DataFrame, df_edges: pd.DataFrame,
     except ImportError:
         raise ImportError("datashader is not installed (need for hammer_bundle)")
     try:
-        import scikit-image
+        import skimage
     except ImportError:
         raise ImportError("scikit-image is not installed (need for hammer_bundle)")
     from datashader.bundling import hammer_bundle
