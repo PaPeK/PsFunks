@@ -364,6 +364,14 @@ def swarmplot_single(ax, df, col, orient="h", **kwgs):
     df.drop(columns=[""], inplace=True)
 
 
+def annotate_points_by_x_as_int(ax, x, y, color='grey', fontsize=8):
+    N = len(x)
+    x_spacing = 0.1
+    for i in range(N):
+        ax.annotate(f'{int(x[i])}', (x[i] + x_spacing, y[i]), color=color, fontsize=fontsize)
+    return
+
+
 def yAxisOff(axs):
     axs.get_yaxis().set_visible(False)  # no ticks
     axs.spines["left"].set_visible(False)  # no spine
@@ -724,6 +732,10 @@ def hammer_bundle(ax: plt.Axes, df_nodes: pd.DataFrame, df_edges: pd.DataFrame,
         import datashader
     except ImportError:
         raise ImportError("datashader is not installed (need for hammer_bundle)")
+    try:
+        import scikit-image
+    except ImportError:
+        raise ImportError("scikit-image is not installed (need for hammer_bundle)")
     from datashader.bundling import hammer_bundle
     # ensure the right labeling (source and target must be integers)
     if not df_edges['source'].dtype == int:
@@ -807,7 +819,7 @@ def legend_world_regions(
     antarctica=False, legend_kwgs=None
 ):
     '''
-    creates a legend of world regions colored by continent and shaded by region 
+    creates a legend of world regions colored by continent and shaded by region
     (regions are sorted by population size within each continent)
     * the parameters are set such that it works with the example below
     EXAMPLE:
@@ -825,7 +837,7 @@ def legend_world_regions(
         _legend_kwgs = dict(markerscale=1.3, fontsize=8.7, ncol=1)
     if legend_kwgs is not None:
         _legend_kwgs.update(legend_kwgs)
-    # legend colors 
+    # legend colors
     df_info = jut.get_countryInfo().set_index("region_name")
     # color by color-continent + alpha-region
     cs = [
