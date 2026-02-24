@@ -726,8 +726,8 @@ def hammer_bundle(ax: plt.Axes, df_nodes: pd.DataFrame, df_edges: pd.DataFrame,
                   kwgs_hb: dict = {'decay': 0.2, 'initial_bandwidth': 0.25, 'iterations': 1},
                   kwgs_plot: dict = dict(alpha=0.3, color='k', label='_nolab', linewidth=0.1)):
     # assure correct columns
-    assert np.in1d(['x', 'y'], df_nodes.columns).all(), "df_nodes must contain columns 'x' and 'y'"
-    assert np.in1d(['source', 'target'], df_edges.columns).all(), "df_edges must contain columns 'source' and 'target'"
+    assert np.isin(['x', 'y'], df_nodes.columns).all(), "df_nodes must contain columns 'x' and 'y'"
+    assert np.isin(['source', 'target'], df_edges.columns).all(), "df_edges must contain columns 'source' and 'target'"
     try:
         import datashader
     except ImportError:
