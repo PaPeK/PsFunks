@@ -15,6 +15,9 @@ _cluster_methods = ['single', 'complete', 'average', 'ward', 'centroid', 'weight
 class Clusterer:
     '''
     INPUT:
+        data: pd.DataFrame # time-series (column: process, index: time) 
+                             OR
+                             position in high-dimensional space (column: process, index: dimension ) 
         method: str='ward' # method for distance between clusters
         method_fcluster: str='fcluster', # method to form flat clusters
         t: str='fcluster', # threshold to form flat clusters
@@ -29,6 +32,7 @@ class Clusterer:
                  data_is_distance_matrix: bool=False
                  ):
 
+        assert distance_metric in ['correlation', 'euclidean'], f"Invalid distance metric. Choose 'correlation' or 'euclidean', got {distance_metric}"
         self.distance_metric = distance_metric
         if data_is_distance_matrix:
             self.df_dist = data
@@ -42,6 +46,25 @@ class Clusterer:
         self.method_fcluster = 'fcluster'
         self.t = None
 
+    def __repr__(self):
+        general_info = f"Clustering with settings: method={self.method}, method_fcluster={self.method_fcluster}"
+        input_info = f"INPUT data --> distance-matrix via {self.distance_metric} distance"
+        if data_is_distance_matrix:
+            input_info = "INPUT data is a distance matrix (no distances computed)"
+        current_state = f"""
+        processing_state: no distance_treshold is set (t) (no cluster-coloring possible)
+        --> run elbow_plot and
+        set distance_threshold via
+            set_distance_threshold_for_Ncluster(N)
+                or
+            set_distance_threshold(t)
+        Note that {self.method_fcluster} will be used per default, change via "set_method"
+        """
+        if self.t is not None:
+            current_state = f"processing_state: distance_treshold (t) is set to {self.t} --> resulting in {self.N_cluster} cluster"
+        info = '\n'.join([general_info, input_info, current_state])
+        return info
+
     def set_method(self, method: str):
         self.method = method
 
@@ -52,6 +75,13 @@ class Clusterer:
 
     def set_distance_threshold(self, t: float):
         self.t = t
+        self.set_N_cluster()
+        
+
+    def set_N_cluster(self):
+        assert hasattr(self, 't') and self.t is not None, "Distance threshold 't' is not set. Call 'set_distance_threshold(t)' to set it before getting number of clusters."
+        to form clusters when calling fcluster()
+        self.N_cluster = len(np.unique(self.fcluster()))
 
     def warn_set_threshold(self):
         if self.t is None:
@@ -128,6 +158,15 @@ class Clusterer:
         return elbow_data
 
     def elbow_plot(self, max_clusters: int):
+        '''
+        INPUT:
+            max_clusters: i # max number of clusters to consider for the elbow plot
+        OUTPUT:
+            f: plt.Figure
+            axs: np.ndarray of plt.Axes
+            elbow_data: dict with keys=method, values=distance thresholds for each number of clusters
+        '''
+
         elbow_data = self.get_elbow_data(max_clusters)
         f, axs = hp.subplots(len(elbow_data), sharex=True, size=0.3)
         idxs = np.arange(1, max_clusters+1)
@@ -182,6 +221,7 @@ class Clusterer:
     def set_distance_threshold_for_Ncluster(self, N: int):
         elbow_data = self.get_elbow_data(N+1)[self.method]
         self.t = np.mean(elbow_data[N-2:N])
+        self.N_cluster = N
 
     def plot_dendrogram(self):
         self.warn_set_threshold()
@@ -197,7 +237,10 @@ class Clusterer:
 
     def plot_hierarchical_distance_matrix(self,
                                           show_ticks: bool=False,
-                                          figsize: list[float]=[8, 8]):
+                                          figsize: list[float]=[8, 8],
+
+                                          ):
+        sns_clustermap_kwargs = {'cmap': 'viridis', 'figsize': figsize,
         m_dist = self.df_dist
         # sort the columns to create clusters in the heatmap
         linkage_matrix = self.linkage(method=self.method)
