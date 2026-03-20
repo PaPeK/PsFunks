@@ -938,3 +938,150 @@ def plot_graph_with_positions(G, pos, ax, with_labels=False,
     if with_labels:
         nx.draw_networkx_labels(G, pos, ax=ax)
     ax.set_axis_off()
+
+
+def annotate_simple(ax, x, y, t, **kwgs):
+    ''' annotate all points directly at their coordinates '''
+    anns = []
+    for xi, yi, ti in np.vstack([x, y, t]).T:
+        anns.append(ax.text(float(xi), float(yi), ti, **kwgs))
+    return anns
+
+
+def annotate(ax, x, y, t, **kwgs):
+    ''' annotate all points with a greedy nearest-valid placement
+
+    Labels are placed one after the other. Once a label position is accepted,
+    it remains fixed. Each new label is placed at the closest candidate
+    position that does not overlap earlier labels or nearby points.
+
+    Optional keyword arguments:
+        arrowprops: dict, forwarded to matplotlib annotate
+        initial_offset: float, preferred distance to the point in screen pixels
+        radial_step: float, distance increment of the candidate search in pixels
+        max_offset: float, maximal candidate distance from the point in pixels
+        n_angles: int, number of angles sampled per search radius
+        text_padding: float, padding around text bounding boxes in pixels
+        point_padding: float, exclusion radius around points in pixels
+    '''
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    t = np.asarray(t, dtype=str)
+    if len(x) == 0:
+        return []
+
+    initial_offset = kwgs.pop('initial_offset', 10.0)
+    radial_step = kwgs.pop('radial_step', 6.0)
+    max_offset = kwgs.pop('max_offset', 120.0)
+    n_angles = kwgs.pop('n_angles', 24)
+    text_padding = kwgs.pop('text_padding', 2.0)
+    point_padding = kwgs.pop('point_padding', 8.0)
+    arrowprops = kwgs.pop(
+        'arrowprops',
+        dict(arrowstyle='-', color='0.5', lw=0.7, shrinkA=0, shrinkB=0),
+    )
+
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+
+    points = np.column_stack([x, y])
+    points_disp = ax.transData.transform(points)
+    center_disp = ax.transData.transform(
+        [[np.mean(ax.get_xlim()), np.mean(ax.get_ylim())]]
+    )[0]
+    ax_bbox = ax.get_window_extent(renderer=renderer)
+
+    def _bbox_overlap(box_a, box_b):
+        return not (
+            box_a.x1 <= box_b.x0 or box_a.x0 >= box_b.x1
+            or box_a.y1 <= box_b.y0 or box_a.y0 >= box_b.y1
+        )
+
+    def _bbox_in_axes(box):
+        return (
+            box.x0 >= ax_bbox.x0 and box.x1 <= ax_bbox.x1
+            and box.y0 >= ax_bbox.y0 and box.y1 <= ax_bbox.y1
+        )
+
+    def _bbox_hits_point(box, point):
+        nearest_x = np.clip(point[0], box.x0, box.x1)
+        nearest_y = np.clip(point[1], box.y0, box.y1)
+        dist = np.linalg.norm(point - np.array([nearest_x, nearest_y]))
+        return dist < point_padding
+
+    def _make_bbox(origin, bbox_size):
+        x0 = origin[0] + bbox_size[0]
+        y0 = origin[1] + bbox_size[1]
+        x1 = x0 + bbox_size[2]
+        y1 = y0 + bbox_size[3]
+        return matplotlib.transforms.Bbox.from_extents(x0, y0, x1, y1)
+
+    def _candidate_offsets(direction):
+        pref_angle = np.arctan2(direction[1], direction[0])
+        angle_offsets = np.linspace(0.0, 2.0 * np.pi, n_angles, endpoint=False)
+        angle_order = np.argsort(np.abs(np.angle(np.exp(1j * angle_offsets))))
+        ordered_angles = pref_angle + angle_offsets[angle_order]
+        radii = np.arange(initial_offset, max_offset + radial_step, radial_step)
+        yield np.array([0.0, 0.0])
+        for radius in radii:
+            for angle in ordered_angles:
+                yield radius * np.array([np.cos(angle), np.sin(angle)])
+
+    anns = []
+    fixed_bboxes = []
+    directions = points_disp - center_disp
+    zero_dir = np.array([1.0, 1.0]) / np.sqrt(2.0)
+
+    for i, (xi, yi, ti) in enumerate(np.column_stack([x, y, t])):
+        direction = directions[i]
+        norm = np.linalg.norm(direction)
+        if norm < 1e-9:
+            direction = zero_dir
+        else:
+            direction = direction / norm
+
+        ann = ax.annotate(
+            ti,
+            xy=(float(xi), float(yi)),
+            xytext=(float(xi), float(yi)),
+            textcoords='data',
+            arrowprops=arrowprops.copy(),
+            **kwgs,
+        )
+        text_bbox = ann.get_window_extent(renderer=renderer)
+        anchor_disp = points_disp[i]
+        bbox_size = (
+            text_bbox.x0 - anchor_disp[0] - text_padding,
+            text_bbox.y0 - anchor_disp[1] - text_padding,
+            text_bbox.width + 2 * text_padding,
+            text_bbox.height + 2 * text_padding,
+        )
+
+        best_pos_disp = None
+        best_penalty = None
+        for offset in _candidate_offsets(direction):
+            pos_disp = points_disp[i] + offset
+            bbox = _make_bbox(pos_disp, bbox_size)
+
+            overlap_penalty = 0
+            if not _bbox_in_axes(bbox):
+                overlap_penalty += 10 ** 6
+            overlap_penalty += sum(_bbox_overlap(bbox, other_bbox) for other_bbox in fixed_bboxes)
+            overlap_penalty += sum(_bbox_hits_point(bbox, point) for point in points_disp)
+
+            if overlap_penalty == 0:
+                best_pos_disp = pos_disp
+                break
+
+            if best_penalty is None or overlap_penalty < best_penalty:
+                best_penalty = overlap_penalty
+                best_pos_disp = pos_disp
+
+        pos_data = ax.transData.inverted().transform(best_pos_disp)
+        ann.set_position((float(pos_data[0]), float(pos_data[1])))
+        fixed_bboxes.append(_make_bbox(best_pos_disp, bbox_size))
+        anns.append(ann)
+
+    fig.canvas.draw_idle()
+    return anns

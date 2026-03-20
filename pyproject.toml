@@ -25,6 +25,11 @@ dependencies = [
   "geopandas>=1.1.1",
 ]
 
+[project.optional-dependencies]
+astro = [
+  "astropy",
+]
+
 
 [build-system]
 build-backend = "hatchling.build"
@@ -52,3 +57,8 @@ disable = "missing-class-docstring,missing-function-docstring,missing-module-doc
 
 [tool.setuptools]
 packages = ["ps_funks"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

@@ -438,3 +438,47 @@ def get_blocks(there, minsize):
     print(f'minsize = {minsize}')
     blocks = blocks[longenough]
     return blocks
+
+
+def get_mean_geo_location(lat, lon, weights=None):
+    '''
+    computes the mean longitude (E-W) and latitude (N-S)
+    INPUT:
+        lat np.ndarray
+            latitude values either in rad or deg
+        lon np.ndarray
+            longitude values either in rad or deg
+        weights None or np.ndarray
+            weights of the points
+    OUTPUT:
+        mean_lat float
+        mean_lon float
+
+    Implementation note:
+        -astropy.stats.circmean is used instead of scipy.stats.circmean
+         because it has a weights option
+        -for lat: a simple averate works fine
+        -for lon: a circular mean needs to be used
+
+    '''
+    if weights is None:
+        weights = np.ones_like(lat, dtype=float)
+    else:
+        weights = np.asarray(weights, dtype=float)
+    weights /= weights.sum()
+    try:
+        from astropy import stats as astats  # for astats.circmean
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "get_mean_geo_location requires the optional dependency 'astropy'. "
+            "Install it with `uv sync --extra astro` or `uv add astropy` or `pip install astropy`."
+        ) from exc
+    lola = [lon, lat]
+    in_degrees = np.max(np.abs([np.min(lola), np.max(lola)])) > (2 * np.pi)
+    if in_degrees:
+        lon = lon * np.pi / 180
+    mean_lat = np.average(lat, weights=weights)
+    mean_lon = astats.circmean(lon, weights=weights)
+    if in_degrees:
+        mean_lon *= 180 / np.pi
+    return mean_lat, mean_lon

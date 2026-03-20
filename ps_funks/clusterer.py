@@ -62,8 +62,8 @@ class Clusterer:
         """
         if self.t is not None:
             current_state = f"processing_state: distance_treshold (t) is set to {self.t} --> resulting in {self.N_cluster} cluster"
-        info = '\n'.join([general_info, input_info, current_state])
-        return info
+        info_txt = '\n'.join([general_info, input_info, current_state])
+        return info_txt
 
     def set_method(self, method: str):
         self.method = method
@@ -75,13 +75,12 @@ class Clusterer:
 
     def set_distance_threshold(self, t: float):
         self.t = t
-        self.set_N_cluster()
-        
-
-    def set_N_cluster(self):
-        assert hasattr(self, 't') and self.t is not None, "Distance threshold 't' is not set. Call 'set_distance_threshold(t)' to set it before getting number of clusters."
-        to form clusters when calling fcluster()
         self.N_cluster = len(np.unique(self.fcluster()))
+
+    def set_distance_threshold_for_Ncluster(self, N: int):
+        elbow_data = self.get_elbow_data(N+1)[self.method]
+        self.t = np.mean(elbow_data[N-2:N])
+        self.N_cluster = N
 
     def warn_set_threshold(self):
         if self.t is None:
@@ -218,11 +217,6 @@ class Clusterer:
         hp.abc_plotLabels([0.3, 0.9], axs, abc=list(elbow_data_second_deriv.keys()), fontsize=8)
         return f, axs, elbow_data_second_deriv
 
-    def set_distance_threshold_for_Ncluster(self, N: int):
-        elbow_data = self.get_elbow_data(N+1)[self.method]
-        self.t = np.mean(elbow_data[N-2:N])
-        self.N_cluster = N
-
     def plot_dendrogram(self):
         self.warn_set_threshold()
         df = self.df_dist
@@ -238,9 +232,10 @@ class Clusterer:
     def plot_hierarchical_distance_matrix(self,
                                           show_ticks: bool=False,
                                           figsize: list[float]=[8, 8],
-
+                                          **kwargs
                                           ):
-        sns_clustermap_kwargs = {'cmap': 'viridis', 'figsize': figsize,
+        sns_clustermap_kwargs = {'cmap': 'viridis', 'figsize': figsize}
+        sns_clustermap_kwargs.update(kwargs)
         m_dist = self.df_dist
         # sort the columns to create clusters in the heatmap
         linkage_matrix = self.linkage(method=self.method)
@@ -250,7 +245,6 @@ class Clusterer:
             colors = [f'C{c}' for c in self.fcluster()]
         # plot the clustered heatmap
         f = sns.clustermap(m_dist, row_linkage=linkage_matrix, col_linkage=linkage_matrix,
-                           cmap='viridis', figsize=figsize,
                            cbar_kws={'label': (f'Distance: {self.method}' + r'($d_{ij}$)' +
                                                '\n' + r'$d_{ij}=1-\rho_{ij}$')},
                            col_colors=colors, row_colors=colors)
